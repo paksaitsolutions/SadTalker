@@ -1,6 +1,12 @@
 import os, sys
 import gradio as gr
-from src.gradio_demo import SadTalker  
+from src.gradio_demo import SadTalker
+from src.config import *  # Import FFmpeg configuration
+
+# Set environment variables for FFmpeg
+os.environ['PATH'] = f"C:\\ffmpeg\\bin;{os.environ['PATH']}"
+os.environ['FFMPEG_BINARY'] = FFMPEG_PATH
+os.environ['FFPROBE_BINARY'] = FFPROBE_PATH
 
 
 try:
