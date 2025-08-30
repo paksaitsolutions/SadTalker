@@ -1,4 +1,5 @@
 import os 
+import sys
 import torch
 import numpy as np
 from scipy.io import savemat, loadmat
@@ -8,10 +9,16 @@ from scipy.signal import savgol_filter
 import safetensors
 import safetensors.torch 
 
+# Add parent directory to path to import GRUGAN from paksaapp
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from src.audio2pose_models.audio2pose import Audio2Pose
 from src.audio2exp_models.networks import SimpleWrapperV2 
 from src.audio2exp_models.audio2exp import Audio2Exp
-from src.utils.safetensor_helper import load_x_from_safetensor  
+from src.utils.safetensor_helper import load_x_from_safetensor
+
+# Import GRUGAN from gesture_models
+from src.gesture_models import GRUGAN
 
 def load_cpk(checkpoint_path, model=None, optimizer=None, device="cpu"):
     checkpoint = torch.load(checkpoint_path, map_location=torch.device(device))
@@ -71,10 +78,18 @@ class Audio2Coeff():
  
         self.device = device
 
+        # load gesture generation model
+        self.gesture_generator = GRUGAN(device)
+        self.gesture_generator.eval()
+        for param in self.gesture_generator.parameters():
+            param.requires_grad = False
+
     def generate(self, batch, coeff_save_dir, pose_style, ref_pose_coeff_path=None):
 
         with torch.no_grad():
             #test
+            results_dict_exp= self.audio2exp_model.test(batch)
+            exp_pred = results_dict_exp['exp_coeff_pred']                         #bs T 64
             results_dict_exp= self.audio2exp_model.test(batch)
             exp_pred = results_dict_exp['exp_coeff_pred']                         #bs T 64
 
@@ -82,19 +97,20 @@ class Audio2Coeff():
             #class_id = 0#(i+10)%45
             #class_id = random.randint(0,46)                                   #46 styles can be selected 
             batch['class'] = torch.LongTensor([pose_style]).to(self.device)
-            results_dict_pose = self.audio2pose_model.test(batch) 
-            pose_pred = results_dict_pose['pose_pred']                        #bs T 6
-
+            results_dict_pose = self.audio2pose_model.test(batch)
+            #pose_pred = results_dict_pose['pose_pred']                        #bs T 6
+            #pose_pred = body_pose[:, :, :6]
+            pose_pred = results_dict_pose['pose_pred']
             pose_len = pose_pred.shape[1]
             if pose_len<13: 
                 pose_len = int((pose_len-1)/2)*2+1
                 pose_pred = torch.Tensor(savgol_filter(np.array(pose_pred.cpu()), pose_len, 2, axis=1)).to(self.device)
             else:
-                pose_pred = torch.Tensor(savgol_filter(np.array(pose_pred.cpu()), 13, 2, axis=1)).to(self.device) 
-            
+                pose_pred = torch.Tensor(savgol_filter(np.array(pose_pred.cpu()), 13, 2, axis=1)).to(self.device)
+
             coeffs_pred = torch.cat((exp_pred, pose_pred), dim=-1)            #bs T 70
 
-            coeffs_pred_numpy = coeffs_pred[0].clone().detach().cpu().numpy() 
+            coeffs_pred_numpy = coeffs_pred[0].clone().detach().cpu().numpy()
 
             if ref_pose_coeff_path is not None: 
                  coeffs_pred_numpy = self.using_refpose(coeffs_pred_numpy, ref_pose_coeff_path)

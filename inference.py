@@ -13,7 +13,10 @@ from src.generate_facerender_batch import get_facerender_data
 from src.utils.init_path import init_path
 
 def main(args):
-    #torch.backends.cudnn.enabled = False
+    # Disable CUDA and enable CPU optimizations
+    os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
+    torch.backends.cudnn.enabled = False
+    torch.set_num_threads(4)  # Limit CPU threads to prevent system freeze
 
     pic_path = args.source_image
     audio_path = args.driven_audio
@@ -21,7 +24,8 @@ def main(args):
     os.makedirs(save_dir, exist_ok=True)
     pose_style = args.pose_style
     device = args.device
-    batch_size = args.batch_size
+    batch_size = 1  # Force batch size to 1 for CPU
+    args.batch_size = 1  # Override batch size
     input_yaw_list = args.input_yaw
     input_pitch_list = args.input_pitch
     input_roll_list = args.input_roll
@@ -32,8 +36,10 @@ def main(args):
 
     sadtalker_paths = init_path(args.checkpoint_dir, os.path.join(current_root_path, 'src/config'), args.size, args.old_version, args.preprocess)
 
-    #init model
+    # Init model with CPU optimizations
+    torch.set_grad_enabled(False)  # Disable gradient calculation
     preprocess_model = CropAndExtract(sadtalker_paths, device)
+    preprocess_model.net_recon.eval()  # Set to evaluation mode
 
     audio_to_coeff = Audio2Coeff(sadtalker_paths,  device)
     

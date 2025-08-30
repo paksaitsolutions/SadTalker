@@ -3,13 +3,14 @@ import os, sys, shutil
 from src.utils.preprocess import CropAndExtract
 from src.test_audio2coeff import Audio2Coeff  
 from src.facerender.animate import AnimateFromCoeff
+from src.facerender.fullbody_animator import FullBodyAnimator
 from src.generate_batch import get_data
 from src.generate_facerender_batch import get_facerender_data
 
 from src.utils.init_path import init_path
 
 from pydub import AudioSegment
-
+import cv2
 
 def mp3_to_wav(mp3_filename,wav_filename,frame_rate):
     mp3_file = AudioSegment.from_file(file=mp3_filename)
@@ -31,17 +32,40 @@ class SadTalker():
 
         self.checkpoint_path = checkpoint_path
         self.config_path = config_path
-      
+        self.fullbody_animator = None
+
+    def _initialize_fullbody_animator(self):
+        """Initialize the full-body animator if not already done"""
+        if self.fullbody_animator is None:
+            self.fullbody_animator = FullBodyAnimator(device=self.device)
+            
+    def generate_fullbody_animation(self, image_path, output_path, duration_sec=5, fps=25):
+        """Generate a full-body animation from a still image"""
+        self._initialize_fullbody_animator()
+        
+        # Read the image
+        image = cv2.imread(image_path)
+        if image is None:
+            raise ValueError(f"Could not read image: {image_path}")
+            
+        # Generate frames
+        num_frames = int(duration_sec * fps)
+        frames = self.fullbody_animator.generate_dance_sequence(image, num_frames)
+        
+        # Save as video
+        self.fullbody_animator.save_video(frames, output_path, fps)
+        return output_path
 
     def test(self, source_image, driven_audio, preprocess='crop', 
-        still_mode=False,  use_enhancer=False, batch_size=1, size=256, 
-        pose_style = 0, exp_scale=1.0, 
-        use_ref_video = False,
-        ref_video = None,
-        ref_info = None,
-        use_idle_mode = False,
-        length_of_audio = 0, use_blink=True,
-        result_dir='./results/'):
+        still_mode=False, use_enhancer=False, batch_size=1, size=256, 
+        pose_style=0, exp_scale=1.0, 
+        use_ref_video=False,
+        ref_video=None,
+        ref_info=None,
+        use_idle_mode=False,
+        length_of_audio=0, use_blink=True,
+        result_dir='./results/',
+        full_body=False):
 
         self.sadtalker_paths = init_path(self.checkpoint_path, self.config_path, size, False, preprocess)
         print(self.sadtalker_paths)
@@ -90,7 +114,16 @@ class SadTalker():
 
         os.makedirs(save_dir, exist_ok=True)
         
-        #crop image and extract 3dmm from image
+        # Handle full-body animation
+        if full_body:
+            output_video_path = os.path.join(save_dir, 'fullbody_output.mp4')
+            try:
+                return self.generate_fullbody_animation(pic_path, output_video_path)
+            except Exception as e:
+                print(f"Full-body animation failed: {e}")
+                print("Falling back to face animation...")
+        
+        # Crop image and extract 3dmm from image for face animation
         first_frame_dir = os.path.join(save_dir, 'first_frame_dir')
         os.makedirs(first_frame_dir, exist_ok=True)
         first_coeff_path, crop_pic_path, crop_info = self.preprocess_model.generate(pic_path, first_frame_dir, preprocess, True, size)
